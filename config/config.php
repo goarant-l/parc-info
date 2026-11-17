@@ -4,7 +4,7 @@
  * Adapter ces valeurs à votre environnement (XAMPP, WAMP, hébergeur…).
  */
 return [
-    'app_name' => 'ParcScope',
+    'app_name' => 'BTSInventory',
     'db' => [
         'host'    => 'localhost',
         'name'    => 'parc_info',
