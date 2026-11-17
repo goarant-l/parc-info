@@ -84,3 +84,21 @@ function forbidden(): void
     require __DIR__ . '/footer.php';
     exit;
 }
+/** IP du poste qui consulte le site (avec une IP simulée possible en développement). */
+function client_ip(): string
+{
+    $simulee = config()['dev_ip_simulee'] ?? '';
+    if ($simulee !== '') {
+        return $simulee;   // dev uniquement
+    }
+    return $_SERVER['REMOTE_ADDR'] ?? '';
+}
+
+/** Condition SQL limitant les machines visibles selon le niveau. */
+function machine_scope(array $user, string $alias = 'm'): array
+{
+    if ((int) $user['niveau'] === NIVEAU_ELEVE) {
+        return ["{$alias}.ip = ?", [client_ip()]];
+    }
+    return ['1 = 1', []];
+}

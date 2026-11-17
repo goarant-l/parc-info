@@ -4,6 +4,22 @@ require_login();
 
 $pdo = db();
 $user = current_user();
+if ((int) $user['niveau'] === NIVEAU_ELEVE) {
+    [$scopeSql, $scopeParams] = machine_scope($user);
+    $st = $pdo->prepare("SELECT m.id FROM machines m WHERE $scopeSql LIMIT 1");
+    $st->execute($scopeParams);
+    $monPoste = $st->fetchColumn();
+    if ($monPoste !== false) {
+        redirect('machine.php?id=' . (int) $monPoste);
+    }
+    $pageTitle = 'Tableau de bord';
+    $active = 'index';
+    require __DIR__ . '/includes/header.php';
+    echo '<div class="empty"><h2>Aucun poste reconnu</h2>'
+       . '<p>Connectez-vous depuis un ordinateur de la salle pour voir sa fiche.</p></div>';
+    require __DIR__ . '/includes/footer.php';
+    exit;
+}
 
 // Répartition par statut
 $parStatut = ['actif' => 0, 'panne' => 0, 'maintenance' => 0];

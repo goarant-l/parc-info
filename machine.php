@@ -3,24 +3,38 @@ require __DIR__ . '/includes/bootstrap.php';
 require_login();
 
 $pdo = db();
+$user = current_user();
 $id = (int) ($_GET['id'] ?? 0);
 
-$stmt = $pdo->prepare('SELECT m.*, s.nom AS salle FROM machines m JOIN salles s ON s.id = m.salle_id WHERE m.id = ?');
-$stmt->execute([$id]);
+// Un élève ne voit que le poste depuis lequel il se connecte (voir machine_scope() dans includes/auth.php).
+// La condition est dans la requête : une machine non autorisée est traitée comme une machine inexistante (404).
+[$scopeSql, $scopeParams] = machine_scope($user);
+
+$stmt = $pdo->prepare(
+    'SELECT m.*, s.nom AS salle
+       FROM machines m JOIN salles s ON s.id = m.salle_id
+      WHERE m.id = ? AND ' . $scopeSql
+);
+$stmt->execute(array_merge([$id], $scopeParams));
 $m = $stmt->fetch();
+
+// Lien de retour : la liste complète n'a de sens que pour les professeurs et l'administrateur
+$estEleve = !has_level(NIVEAU_PROF);
+$retourUrl = $estEleve ? 'index.php' : 'machines.php';
+$retourLabel = $estEleve ? 'Mon poste' : 'Toutes les machines';
 
 if (!$m) {
     http_response_code(404);
     $pageTitle = 'Machine introuvable';
     $active = 'machines';
     require __DIR__ . '/includes/header.php';
-    echo '<div class="empty"><h2>Machine introuvable</h2><p>Cette fiche n’existe pas (ou a été supprimée).</p>'
-       . '<a class="btn" href="machines.php">Retour à la liste</a></div>';
+    echo '<div class="empty"><h2>Machine introuvable</h2><p>Cette fiche n’existe pas, a été supprimée ou n’est pas accessible depuis ce poste.</p>'
+       . '<a class="btn" href="' . e($retourUrl) . '">Retour</a></div>';
     require __DIR__ . '/includes/footer.php';
     exit;
 }
 
-// Signalement d'une panne (tous les niveaux)
+// Signalement d'une panne (tous les niveaux, sur une machine accessible uniquement)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'signaler') {
     csrf_check();
     $description = trim((string) ($_POST['description'] ?? ''));
@@ -29,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'signa
         flash('error', 'Décrivez la panne en 10 à 1000 caractères.');
     } else {
         $ins = $pdo->prepare('INSERT INTO signalements (machine_id, utilisateur_id, description, statut, date_creation) VALUES (?, ?, ?, ?, ?)');
-        $ins->execute([$id, current_user()['id'], $description, 'ouvert', date('Y-m-d H:i:s')]);
+        $ins->execute([$id, $user['id'], $description, 'ouvert', date('Y-m-d H:i:s')]);
         flash('success', 'Votre signalement a été enregistré. Un professeur va le traiter.');
     }
     redirect('machine.php?id=' . $id . '#signalements');
@@ -55,7 +69,7 @@ $pageTitle = $m['nom'];
 $active = 'machines';
 require __DIR__ . '/includes/header.php';
 ?>
-<a class="back" href="machines.php"><?= icon('back') ?>Toutes les machines</a>
+<a class="back" href="<?= e($retourUrl) ?>"><?= icon('back') ?><?= e($retourLabel) ?></a>
 
 <header class="page-head">
   <div>
@@ -134,9 +148,20 @@ require __DIR__ . '/includes/header.php';
       <?php else: ?>
         <ul class="feed">
           <?php foreach ($signalements as $s): ?>
+            <?php
+              // Un élève ne voit le nom que de ses propres signalements
+              $monSignalement = (int) $s['utilisateur_id'] === (int) $user['id'];
+              if ($s['prenom'] === null) {
+                  $auteur = 'Compte supprimé';
+              } elseif ($estEleve && !$monSignalement) {
+                  $auteur = 'Un autre utilisateur';
+              } else {
+                  $auteur = $s['prenom'] . ' ' . $s['nom'];
+              }
+            ?>
             <li>
               <div class="feed-top">
-                <strong><?= $s['prenom'] !== null ? e($s['prenom'] . ' ' . $s['nom']) : 'Compte supprimé' ?></strong>
+                <strong><?= e($auteur) ?><?= $monSignalement ? ' <small class="muted">(vous)</small>' : '' ?></strong>
                 <?= badge_statut_signalement($s['statut']) ?>
               </div>
               <p><?= nl2br(e($s['description'])) ?></p>
